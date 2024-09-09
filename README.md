@@ -1,2 +1,2 @@
-# Xbox Joystic interface
+# Xbox Joystic Interface
 

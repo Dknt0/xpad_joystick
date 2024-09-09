@@ -2,8 +2,22 @@
 
 /// @brief Constructor
 /// @param dev_name
-XBoxJoystick::XBoxJoystick(const std::string &dev_path, bool debug)
-    : fd_(-1), dev_path_(dev_path), debug_(debug) {}
+XBoxJoystick::XBoxJoystick(const std::string &dev_path, const std::string &hid_path, bool debug)
+    : fd_(-1), dev_path_(dev_path), debug_(debug), hid_path_(hid_path) {
+  // Initialize Rumble command struct
+  rumble_command_.cmd = 0x03;
+  rumble_command_.enable.strong = 1;
+  rumble_command_.enable.weak = 1;
+  rumble_command_.enable.left = 1;
+  rumble_command_.enable.right = 1;
+  rumble_command_.strength.strong = 40;
+  rumble_command_.strength.weak = 30;
+  rumble_command_.strength.left = 20;
+  rumble_command_.strength.right = 20;
+  rumble_command_.pulse.sustain_10ms = 5;
+  rumble_command_.pulse.release_10ms = 5;
+  rumble_command_.pulse.loop_count = 2;
+}
 
 /// @brief Open joystick device
 /// @return Success flag
@@ -42,6 +56,13 @@ bool XBoxJoystick::Open() {
   axis_row_.resize(num_axis_);
   button_row_.resize(num_button_);
 
+  // Get HID handle
+  hidraw_ = open(hid_path_.c_str(), O_WRONLY);
+  if (hidraw_ < 0) {
+    std::cerr << "Error opening " << hid_path_ << ". Please run with sudo." << std::endl;
+    return false;
+  }
+
   // Start the thread
   reading_thread_ = std::thread(&XBoxJoystick::Read, this);
   thread_end_future_ = thread_end_promise_.get_future();
@@ -72,7 +93,8 @@ void XBoxJoystick::Read() {
   JsEvent js;
   int len = -1;
 
-  while (thread_end_future_.wait_for(std::chrono::microseconds(1)) == std::future_status::timeout) {
+  while (thread_end_future_.wait_for(std::chrono::microseconds(1)) ==
+         std::future_status::timeout) {
     FD_ZERO(&rfds);
     FD_SET(fd_, &rfds);
     // select() is used to to monitor multiple file descriptors
@@ -87,7 +109,7 @@ void XBoxJoystick::Read() {
       len = read(fd_, &js, sizeof(struct js_event));
       // Check size
       if (len != sizeof(struct js_event)) {
-        printf("XBoxJoystick: error reading, %d(%s)\n", errno, strerror(errno));
+        std::cout << "XBoxJoystick error readings" << std::endl;
         return;
       }
 
@@ -139,4 +161,9 @@ void XBoxJoystick::PrintData() {
   }
   std::cout << std::endl;
   data_mutex_.unlock();
+}
+
+bool XBoxJoystick::Rumble() {
+  write(hidraw_, &rumble_command_, sizeof(rumble_command_));
+  return true;
 }

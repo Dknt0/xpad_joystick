@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include <chrono>
+#include <future>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -19,25 +20,50 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include <future>
 
 typedef struct js_event JsEvent;
 
+/// @brief Rumble command
+struct JoystckRumblePack {
+  char cmd;  // Set to 0x03
+  struct {
+    u_char weak : 1;
+    u_char strong : 1;
+    u_char right : 1;
+    u_char left : 1;
+  } enable;  // 0 or 1
+  struct {
+    u_char left;
+    u_char right;
+    u_char strong;
+    u_char weak;
+  } strength;  // 0 ~ 100
+  struct {
+    u_char sustain_10ms;
+    u_char release_10ms;
+    u_char loop_count;  // 0 ~ 255
+  } pulse;
+};
+
 class XBoxJoystick {
  public:
-  XBoxJoystick(const std::string &dev_path, bool debug = false);
-  ~XBoxJoystick() {}
+  XBoxJoystick(const std::string &dev_path, const std::string &hid_path,
+               bool debug = false);
+  ~XBoxJoystick() { close(hidraw_); }
+
   bool Open();
   void Close();
-  void Read();
+  bool Rumble();
 
   unsigned char GetAxes() { return num_axis_; }
   unsigned char GetButtons() { return num_button_; }
   int GetFd() { return fd_; }
   void PrintData();
-  void ProcessData(const JsEvent &js);
 
  private:
+  void Read();
+  void ProcessData(const JsEvent &js);
+
   bool debug_;
   int fd_ = -1;                   // File descriptor used by system call
   std::string dev_path_ = "";     // Device path
@@ -47,6 +73,10 @@ class XBoxJoystick {
   size_t num_button_ = 0;         // Number of buttons
   std::vector<int> axis_row_;     // Axis row value
   std::vector<char> button_row_;  // Button row value
+
+  std::string hid_path_ = "";         // HID path
+  JoystckRumblePack rumble_command_;  // Rumble command
+  int hidraw_;  // Low-level access to Human Interface Devices (HID)
 
   std::thread reading_thread_;  // Thread to read from device
   std::mutex data_mutex_;
