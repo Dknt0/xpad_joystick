@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <yaml-cpp/yaml.h>
 
 #include <chrono>
 #include <future>
@@ -21,10 +22,12 @@
 #include <thread>
 #include <vector>
 
+#include "joystick_state.h"
+
 typedef struct js_event JsEvent;
 
 /// @brief Rumble command
-struct JoystckRumblePack {
+struct JoystickRumblePack {
   char cmd;  // Set to 0x03
   struct {
     u_char weak : 1;
@@ -47,8 +50,7 @@ struct JoystckRumblePack {
 
 class XBoxJoystick {
  public:
-  XBoxJoystick(const std::string &dev_path, const std::string &hid_path,
-               bool debug = false);
+  XBoxJoystick(const std::string &config_path);
   ~XBoxJoystick() { close(hidraw_); }
 
   bool Open();
@@ -71,15 +73,13 @@ class XBoxJoystick {
   char name_[512] = "Unkown";     // Joystick name
   size_t num_axis_ = 0;           // Number of axes
   size_t num_button_ = 0;         // Number of buttons
-  std::vector<int> axis_row_;     // Axis row value
-  std::vector<char> button_row_;  // Button row value
+  JoystickState joystick_state_;  // State
 
-  std::string hid_path_ = "";         // HID path
-  JoystckRumblePack rumble_command_;  // Rumble command
+  std::string hid_path_ = "";          // HID path
+  JoystickRumblePack rumble_command_;  // Rumble command
   int hidraw_;  // Low-level access to Human Interface Devices (HID)
 
   std::thread reading_thread_;  // Thread to read from device
-  std::mutex data_mutex_;
   std::promise<void> thread_end_promise_;
   std::future<void> thread_end_future_;
 };

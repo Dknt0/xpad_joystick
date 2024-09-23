@@ -2,8 +2,23 @@
 
 /// @brief Constructor
 /// @param dev_name
-XBoxJoystick::XBoxJoystick(const std::string &dev_path, const std::string &hid_path, bool debug)
-    : fd_(-1), dev_path_(dev_path), debug_(debug), hid_path_(hid_path) {
+XBoxJoystick::XBoxJoystick(const std::string &config_path) : fd_(-1) {
+  // Read parameters from yaml file
+  YAML::Node yaml_config = YAML::LoadFile(config_path);
+
+  fd_ = -1;
+  dev_path_ = yaml_config["dev_path"].as<std::string>();
+  hid_path_ = yaml_config["hid_path"].as<std::string>();
+  debug_ = yaml_config["debug"].as<bool>();
+
+  if (yaml_config["use_user_mapping"].as<bool>()) {
+    joystick_state_.SetInputMap(yaml_config);
+  } else {
+    joystick_state_.SetInputMap();
+  }
+
+  // joystick_state_.PrintInputMap();
+
   // Initialize Rumble command struct
   rumble_command_.cmd = 0x03;
   rumble_command_.enable.strong = 1;
@@ -16,7 +31,7 @@ XBoxJoystick::XBoxJoystick(const std::string &dev_path, const std::string &hid_p
   rumble_command_.strength.right = 20;
   rumble_command_.pulse.sustain_10ms = 5;
   rumble_command_.pulse.release_10ms = 5;
-  rumble_command_.pulse.loop_count = 2;
+  rumble_command_.pulse.loop_count = 1;
 }
 
 /// @brief Open joystick device
@@ -53,14 +68,18 @@ bool XBoxJoystick::Open() {
   std::cout << "Number of axes: " << num_axis_ << std::endl;
   std::cout << "Number of buttons: " << num_button_ << std::endl;
 
-  axis_row_.resize(num_axis_);
-  button_row_.resize(num_button_);
-
   // Get HID handle
   hidraw_ = open(hid_path_.c_str(), O_WRONLY);
   if (hidraw_ < 0) {
-    std::cerr << "Error opening " << hid_path_ << ". Please run with sudo." << std::endl;
-    return false;
+    std::cerr << "Error opening " << hid_path_ << ". Changing permission."
+              << std::endl;
+    system((std::string("sudo chmod 666 ") + hid_path_).c_str());
+    hidraw_ = open(hid_path_.c_str(), O_WRONLY);
+
+    if (hidraw_ < 0) {
+      std::cerr << "Error hid path." << std::endl;
+      return false;
+    }
   }
 
   // Start the thread
@@ -98,69 +117,28 @@ void XBoxJoystick::Read() {
     FD_ZERO(&rfds);
     FD_SET(fd_, &rfds);
     // select() is used to to monitor multiple file descriptors
-    // Once the joystick device is readable, call Read num_button_ + num_axis_
-    // times to get all values
     int ret = select(fd_ + 1, &rfds, NULL, NULL, &timeout);
     if (ret > 0 && FD_ISSET(fd_, &rfds)) {
       // ret = joystick_xbox->Read(js);
       // Reset the js_event
       memset(&js, 0, sizeof(js));
       // Read new js_event from file descriptor
-      len = read(fd_, &js, sizeof(struct js_event));
+      len = read(fd_, &js, sizeof(JsEvent));
       // Check size
-      if (len != sizeof(struct js_event)) {
+      if (len != sizeof(JsEvent)) {
         std::cout << "XBoxJoystick error readings" << std::endl;
         return;
       }
 
-      this->ProcessData(js);
+      // this->ProcessData(js);
+      joystick_state_.SetFromJsEvent(js);
+      if (debug_) {
+        joystick_state_.PrintState();
+      }
     }
   }
 
   return;
-}
-
-/// @brief Process one joystick event, get axise or button values
-/// @param js joystick event
-void XBoxJoystick::ProcessData(const JsEvent &js) {
-  data_mutex_.lock();
-  switch (js.type & ~JS_EVENT_INIT) {
-    case JS_EVENT_BUTTON:
-      button_row_[js.number] = js.value;
-      break;
-    case JS_EVENT_AXIS:
-      axis_row_[js.number] = js.value;
-      break;
-  }
-  data_mutex_.unlock();
-
-  if (debug_) {
-    PrintData();
-  }
-}
-
-/// @brief Print current joystick states.
-void XBoxJoystick::PrintData() {
-  auto current_time = std::chrono::system_clock::now();
-  std::time_t time = std::chrono::system_clock::to_time_t(current_time);
-  std::cout << "--- " << std::ctime(&time) << std::flush;
-
-  data_mutex_.lock();
-  if (num_axis_ > 0) {
-    std::cout << "Axes: ";
-    for (int i = 0; i < num_axis_; ++i) {
-      std::cout << i << ":" << std::setprecision(6) << axis_row_[i] << " ";
-    }
-  }
-  std::cout << std::endl;
-  if (num_button_ > 0) {
-    std::cout << "Buttons: ";
-    for (int i = 0; i < num_button_; ++i) {
-      std::cout << i << ":" << (button_row_[i] ? "on " : "off") << " ";
-    }
-  }
-  std::cout << std::endl;
-  data_mutex_.unlock();
 }
 
 bool XBoxJoystick::Rumble() {

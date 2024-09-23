@@ -1,13 +1,11 @@
 #include "xbox_joystick.h"
 
 int main() {
-  std::string dev_name = "/dev/input/js0";
-  std::string hid_path = "/dev/hidraw2";
-  XBoxJoystick joystick_xbox(dev_name, hid_path, true);
+  XBoxJoystick joystick_xbox(
+      "/home/dknt/Projects/xpad_joystick/config/default.yaml");
   joystick_xbox.Open();
 
   while (true) {
-
     std::cin.get();
     joystick_xbox.Rumble();
   }
